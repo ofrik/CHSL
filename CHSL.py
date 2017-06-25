@@ -13,15 +13,6 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-def timing(f):
-    def wrap(*args):
-        time1 = time.time()
-        ret = f(*args)
-        time2 = time.time()
-        print '%s function took %0.3f ms' % (f.func_name, (time2-time1)*1000.0)
-        return ret
-    return wrap
-
 
 class CHSL(object):
     def __init__(self, linearClassifier, clusteringAlgorithm, numberOfClusters, paramGrid, b=0.7, n_jobs=1):
@@ -44,8 +35,8 @@ class CHSL(object):
         self.paramGrid = paramGrid
         self.scoreFunc = make_scorer(self.score_func, b=b)
         self.n_jobs = n_jobs
+        self.bestParams = None
 
-    @timing
     def fit(self, X, y):
         """
         Fit the CHSL model by splitting the majority class data into p sub-datasets and creating a model for each
@@ -60,12 +51,13 @@ class CHSL(object):
         mjr_X, mjr_y, mnr_X, mnr_y, minorLabel = self.getMinorAndMajorDatasets(X, y)
         models = self.createSubDatasetsAndClassifiers(mjr_X, mjr_y, mnr_X, mnr_y)
         modelOptimizer = CHSLOptimizer(models)
-        clf = GridSearchCV(modelOptimizer, param_grid=self.paramGrid, scoring=self.scoreFunc, cv=10, verbose=1,
-                           refit=False, n_jobs=self.n_jobs)
+        clf = GridSearchCV(modelOptimizer, param_grid=self.paramGrid, scoring=self.scoreFunc, cv=10, refit=False,
+                           n_jobs=self.n_jobs)
         X, y = shuffle(X, y, random_state=0)
         clf.fit(X, y)
         bestParams = clf.best_params_
-        modelOptimizer.set_params(bestParams)
+        self.bestParams = bestParams
+        modelOptimizer.set_params(**bestParams)
         modelOptimizer.fit(X, y)
         return self
 
@@ -91,6 +83,12 @@ class CHSL(object):
             tmp_clf.fit(sub_X, sub_y)
             self.models.append(tmp_clf)
         return self.models
+
+    def getBestParams(self):
+        return self.bestParams
+
+    def set_params(self, **params):
+        pass
 
     def getMinorAndMajorDatasets(self, X, y):
         """
@@ -214,4 +212,3 @@ class CHSLOptimizer(CHSL, BaseEstimator):
         :return: Dictionary of the model parameters and the values
         """
         return {"models": self.models}
-
