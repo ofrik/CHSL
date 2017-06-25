@@ -2,9 +2,6 @@ __author__ = 'Ofri'
 
 from sklearn.base import clone
 import pandas as pd
-import random
-from sklearn.svm import SVC
-from sklearn.cluster import KMeans
 import numpy as np
 from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import make_scorer
@@ -218,18 +215,3 @@ class CHSLOptimizer(CHSL, BaseEstimator):
         """
         return {"models": self.models}
 
-
-if __name__ == "__main__":
-    numberOfMajor = 1000
-    numberOfMinor = 10
-    mjr1 = [random.uniform(1, 100) for i in range(numberOfMajor)]
-    mnr1 = [random.uniform(101, 200) for i in range(numberOfMinor)]
-    mjr2 = [random.uniform(1, 50) for i in range(numberOfMajor)]
-    mnr2 = [random.uniform(101, 150) for i in range(numberOfMinor)]
-    df = pd.DataFrame(
-        {"value1": mjr1 + mnr1, "value2": mjr2 + mnr2, "target": ([0] * numberOfMajor) + ([1] * numberOfMinor)})
-    clf = CHSL(SVC(kernel="linear"), KMeans(), 3, {"C": [1, 2]})
-    y = df["target"]
-    X = df.drop("target", axis=1)
-    clf.fit(X, y)
-    print "started"
