@@ -28,7 +28,6 @@ class CHSL(object):
         :param b: The minimum threshold for the specificity
         :param n_jobs: The number of jobs for the grid search
         """
-        self.models = []
         self.baseLinearClassifier = clone(linearClassifier)
         self.numberOfClusters = numberOfClusters
         self.baseClusteringAlgorithm = clone(clusteringAlgorithm.set_params(**{"n_clusters": numberOfClusters}))
@@ -36,6 +35,7 @@ class CHSL(object):
         self.scoreFunc = make_scorer(self.score_func, b=b)
         self.n_jobs = n_jobs
         self.bestParams = None
+        self.ensemble = None
 
     def fit(self, X, y):
         """
@@ -47,18 +47,17 @@ class CHSL(object):
         :param y: Train labels
         :return: Self
         """
-        self.models = []
         mjr_X, mjr_y, mnr_X, mnr_y, minorLabel = self.getMinorAndMajorDatasets(X, y)
         models = self.createSubDatasetsAndClassifiers(mjr_X, mjr_y, mnr_X, mnr_y)
-        modelOptimizer = CHSLOptimizer(models)
-        clf = GridSearchCV(modelOptimizer, param_grid=self.paramGrid, scoring=self.scoreFunc, cv=10, refit=False,
+        self.ensemble = CHSLOptimizer(models)
+        clf = GridSearchCV(self.ensemble, param_grid=self.paramGrid, scoring=self.scoreFunc, cv=10, refit=False,
                            n_jobs=self.n_jobs)
         X, y = shuffle(X, y, random_state=0)
         clf.fit(X, y)
         bestParams = clf.best_params_
         self.bestParams = bestParams
-        modelOptimizer.set_params(**bestParams)
-        modelOptimizer.fit(X, y)
+        self.ensemble.set_params(**bestParams)
+        self.ensemble.fit(X, y)
         return self
 
     def createSubDatasetsAndClassifiers(self, mjr_X, mjr_y, mnr_X, mnr_y):
@@ -71,6 +70,7 @@ class CHSL(object):
         :return: List of the ensemble classifiers
         """
         clustersLabels = self.baseClusteringAlgorithm.fit(mjr_X).labels_
+        models = []
         for i in range(0, self.numberOfClusters):
             mnr_y[mnr_y != 1] = 1
             tmp_clf = clone(self.baseLinearClassifier)
@@ -81,8 +81,8 @@ class CHSL(object):
             sub_X = pd.concat([subMjrCluster_X, mnr_X])
             sub_y = pd.concat([subMjrCluster_y, mnr_y])
             tmp_clf.fit(sub_X, sub_y)
-            self.models.append(tmp_clf)
-        return self.models
+            models.append(tmp_clf)
+        return models
 
     def getBestParams(self):
         return self.bestParams
@@ -116,24 +116,7 @@ class CHSL(object):
         return mjr_X, mjr_y, mnr_X, mnr_y, minorLabel
 
     def predict(self, X):
-        """
-        Predict the class of the given data by iterating over the models created in the fit stage. an instance is
-        determined to be the minority class only if none of the models predicted the instance to be a majority class
-        :param X: Test data
-        :return: List of predictions
-        """
-        preds = []
-        # predicting all the given samples
-        for i, x in X.iterrows():
-            test_res = 1
-            # check the results of the classifiers until one return the majority label
-            for model in self.models:
-                tmp_res = model.predict(x)[0]
-                if tmp_res == 0:
-                    test_res = 0
-                    break
-            preds.append(test_res)
-        return preds
+        return self.ensemble.predict(X)
 
     def score_func(self, y, y_pred, b):
         """
@@ -189,11 +172,23 @@ class CHSLOptimizer(CHSL, BaseEstimator):
 
     def predict(self, X):
         """
-        Using the parent method to predict the class of all the given instances
+        Predict the class of the given data by iterating over the models created in the fit stage. an instance is
+        determined to be the minority class only if none of the models predicted the instance to be a majority class
         :param X: Test data
-        :return: List of predictions of the CHSL model
+        :return: List of predictions
         """
-        return super(CHSLOptimizer, self).predict(X)
+        preds = []
+        # predicting all the given samples
+        for i, x in X.iterrows():
+            test_res = 1
+            # check the results of the classifiers until one return the majority label
+            for model in self.models:
+                tmp_res = model.predict(x)[0]
+                if tmp_res == 0:
+                    test_res = 0
+                    break
+            preds.append(test_res)
+        return preds
 
     def set_params(self, **params):
         """
