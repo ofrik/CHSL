@@ -18,7 +18,7 @@ def getDataset():
     baseDir = "datasets"
     regex = r"@inputs?\s(?P<columns>.*)"
     regex2 = r"@attribute\s(?P<column>.*)\s{(?P<values>.*)}"
-    for path in os.listdir(baseDir)[-3:]:
+    for path in os.listdir(baseDir):
         dataFile = "%s\\%s\\%s.dat" % (baseDir, path, path)
         names = []
         categoricalColumns = []
