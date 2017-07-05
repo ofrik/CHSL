@@ -1,5 +1,6 @@
 import random
 from sklearn.svm import SVC
+from sklearn.linear_model import Perceptron, PassiveAggressiveClassifier, RidgeClassifier, SGDClassifier
 from sklearn.cluster import KMeans
 import pandas as pd
 from CHSL import CHSL
@@ -8,8 +9,9 @@ import os
 import time
 from sklearn.model_selection import StratifiedKFold
 import numpy as np
-from sklearn.metrics import confusion_matrix, roc_curve, auc
+from sklearn.metrics import confusion_matrix
 import shutil
+from sklearn.base import clone
 
 RANDOM_SEED = 5
 
@@ -61,7 +63,8 @@ def calcSensitivityAndSpecificity(y_actual, y_pred):
     return TP, TN, FP, FN
 
 
-def checkClaasifier(dataset_name, classifier_name, fold, clf, X_train, y_train, X_test, y_test, params={}):
+def checkClaasifier(dataset_name, classifier_name, fold, clf, X_train, y_train, X_test, y_test, numberOfClusters,
+                    params={}):
     print "Working on %s using %s - %s" % (dataset_name, classifier_name, fold)
     clf.set_params(**params)
     time1 = time.time()
@@ -84,59 +87,79 @@ def checkClaasifier(dataset_name, classifier_name, fold, clf, X_train, y_train, 
         os.mkdir("results")
     if not os.path.exists("results/%s_%s.csv" % (dataset_name, classifier_name)):
         with open("results/%s_%s.csv" % (dataset_name, classifier_name), 'w+') as f:
-            f.write("fold,TP,TN,FP,FN,Senitivity,Specificity,Train Time,Prediction Time\n")
+            f.write("Fold,Number_Of_Clusters,TP,TN,FP,FN,Senitivity,Specificity,Train Time,Prediction Time\n")
     with open("results/%s_%s.csv" % (dataset_name, classifier_name), 'a+') as f:
-        f.write("%s,%s,%s,%s,%s,%s,%s,%s,%s\n" % (
-        fold, TP, TN, FP, FN, sensitivity, specificity, (time2 - time1) * 1000.0, (time4 - time3) * 1000.0))
+        f.write("%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n" % (
+            fold, numberOfClusters, TP, TN, FP, FN, sensitivity, specificity, (time2 - time1) * 1000.0,
+            (time4 - time3) * 1000.0))
 
     return sensitivity, specificity, (time2 - time1) * 1000.0, (time4 - time3) * 1000.0
 
 
 if __name__ == "__main__":
+    classifiers = [
+        ("SVC", SVC(kernel="linear", max_iter=10000, random_state=RANDOM_SEED, class_weight='balanced'),
+         {"C": np.arange(1.0, 10.0, 1.0)}),
+        ("Perceptron", Perceptron(random_state=RANDOM_SEED, class_weight='balanced'),
+         {"penalty": [None, "l2", "l1", "elasticnet"], "alpha": np.arange(0.0001, 0.01, 0.0015)}),
+        ("PassiveAggressiveClassifier", PassiveAggressiveClassifier(random_state=RANDOM_SEED, class_weight='balanced'),
+         {"C": np.arange(1.0, 10.0, 1.0)}),
+        ("RidgeClassifier", RidgeClassifier(random_state=RANDOM_SEED, max_iter=10000, class_weight='balanced'),
+         {"alpha": np.arange(0.0001, 5, 0.5)}),
+        ("SGDClassifier", SGDClassifier(random_state=RANDOM_SEED, class_weight='balanced'),
+         {"loss": ["hinge", "log", "modified_huber", "squared_hinge"]})
+    ]
     if os.path.exists("results"):
         shutil.rmtree("results")
-    for X, y, dataset_name in trainData():
-        print "Train size: %s" % (len(X))
-        skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_SEED)
-        clf = SVC(kernel="linear",
-                  max_iter=10000)
-        chsl = CHSL(SVC(kernel="linear", max_iter=10000, random_state=RANDOM_SEED), KMeans(random_state=RANDOM_SEED),
-                    10, {"C": np.arange(1.0, 10.0, 1.0)})
-        avgOriginalSensitivity = []
-        avgOriginalSpecificity = []
-        avgOriginalTrainTime = []
-        avgOriginalPredictTime = []
-        avgCHSLSensitivity = []
-        avgCHSLSpecificity = []
-        avgCHSLTrainTime = []
-        avgCHSLPredictTime = []
-        counter = 1
-        for train_index, test_index in skf.split(X, y):
-            # print("TRAIN:", train_index, "TEST:", test_index)
-            X_train, X_test = X.iloc[train_index], X.iloc[test_index]
-            y_train, y_test = y.iloc[train_index], y.iloc[test_index]
-            sensitivity, specificity, train_time, predict_time = checkClaasifier(dataset_name, "CHSL_with_SVC", counter,
-                                                                                 chsl,
-                                                                                 X_train, y_train,
-                                                                                 X_test,
-                                                                                 y_test)
-            avgCHSLSensitivity.append(sensitivity)
-            avgCHSLSpecificity.append(specificity)
-            avgCHSLTrainTime.append(train_time)
-            avgCHSLPredictTime.append(predict_time)
+    try:
+        for numberOfClusters in range(5, 20, 3):
+            for classifier in classifiers:
+                for X, y, dataset_name in trainData():
+                    print "Train size: %s" % (len(X))
+                    skf = StratifiedKFold(n_splits=10, shuffle=True, random_state=RANDOM_SEED)
+                    clf = clone(classifier[1])
+                    chsl = CHSL(clone(classifier[1]), KMeans(random_state=RANDOM_SEED),
+                                numberOfClusters, classifier[2])
+                    avgOriginalSensitivity = []
+                    avgOriginalSpecificity = []
+                    avgOriginalTrainTime = []
+                    avgOriginalPredictTime = []
+                    avgCHSLSensitivity = []
+                    avgCHSLSpecificity = []
+                    avgCHSLTrainTime = []
+                    avgCHSLPredictTime = []
+                    counter = 1
+                    for train_index, test_index in skf.split(X, y):
+                        # print("TRAIN:", train_index, "TEST:", test_index)
+                        X_train, X_test = X.iloc[train_index], X.iloc[test_index]
+                        y_train, y_test = y.iloc[train_index], y.iloc[test_index]
+                        sensitivity, specificity, train_time, predict_time = checkClaasifier(dataset_name,
+                                                                                             "CHSL_with_%s" %
+                                                                                             classifier[0],
+                                                                                             counter, chsl, X_train,
+                                                                                             y_train, X_test, y_test,
+                                                                                             numberOfClusters)
+                        avgCHSLSensitivity.append(sensitivity)
+                        avgCHSLSpecificity.append(specificity)
+                        avgCHSLTrainTime.append(train_time)
+                        avgCHSLPredictTime.append(predict_time)
 
-            sensitivity, specificity, train_time, predict_time = checkClaasifier(dataset_name, "SVC", counter, clf,
-                                                                                 X_train,
-                                                                                 y_train, X_test,
-                                                                                 y_test)
-            avgOriginalSensitivity.append(sensitivity)
-            avgOriginalSpecificity.append(specificity)
-            avgOriginalTrainTime.append(train_time)
-            avgOriginalPredictTime.append(predict_time)
-            counter += 1
-        print "The average CHSL sensitivity %s, specificity %s, train time %s ms, prediction time: %s ms" % (
-            np.mean(avgCHSLSensitivity), np.mean(avgCHSLSpecificity), np.mean(avgCHSLTrainTime),
-            np.mean(avgCHSLPredictTime))
-        print "The average sensitivity %s, specificity %s, train time %s ms, prediction time: %s ms\n" % (
-            np.mean(avgOriginalSensitivity), np.mean(avgOriginalSpecificity), np.mean(avgOriginalTrainTime),
-            np.mean(avgOriginalPredictTime))
+                        sensitivity, specificity, train_time, predict_time = checkClaasifier(dataset_name,
+                                                                                             classifier[0],
+                                                                                             counter, clf, X_train,
+                                                                                             y_train,
+                                                                                             X_test, y_test,
+                                                                                             numberOfClusters)
+                        avgOriginalSensitivity.append(sensitivity)
+                        avgOriginalSpecificity.append(specificity)
+                        avgOriginalTrainTime.append(train_time)
+                        avgOriginalPredictTime.append(predict_time)
+                        counter += 1
+                    print "The average CHSL sensitivity %s, specificity %s, train time %s ms, prediction time: %s ms" % (
+                        np.mean(avgCHSLSensitivity), np.mean(avgCHSLSpecificity), np.mean(avgCHSLTrainTime),
+                        np.mean(avgCHSLPredictTime))
+                    print "The average sensitivity %s, specificity %s, train time %s ms, prediction time: %s ms\n" % (
+                        np.mean(avgOriginalSensitivity), np.mean(avgOriginalSpecificity), np.mean(avgOriginalTrainTime),
+                        np.mean(avgOriginalPredictTime))
+    except Exception as inst:
+        print "ERROR:", inst
