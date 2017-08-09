@@ -15,7 +15,7 @@ warnings.filterwarnings("ignore")
 
 
 class CHSL(object):
-    def __init__(self, linearClassifier, clusteringAlgorithm, numberOfClusters, paramGrid, b=0.7, n_jobs=1):
+    def __init__(self, baseLinearClassifier, baseClusteringAlgorithm, numberOfClusters, paramGrid, b=0.7, n_jobs=1):
         """
         Initialize the CHSL model with the linear classifier that will be created for each dataset that will be created
         from the original dataset, the clustering algorithm to create the majority sub-datasets, the number of
@@ -28,10 +28,11 @@ class CHSL(object):
         :param b: The minimum threshold for the specificity
         :param n_jobs: The number of jobs for the grid search
         """
-        self.baseLinearClassifier = clone(linearClassifier)
+        self.baseLinearClassifier = clone(baseLinearClassifier)
         self.numberOfClusters = numberOfClusters
-        self.baseClusteringAlgorithm = clone(clusteringAlgorithm.set_params(**{"n_clusters": numberOfClusters}))
+        self.baseClusteringAlgorithm = clone(baseClusteringAlgorithm.set_params(**{"n_clusters": numberOfClusters}))
         self.paramGrid = paramGrid
+        self.b = b
         self.scoreFunc = make_scorer(self.score_func, b=b)
         self.n_jobs = n_jobs
         self.bestParams = None
@@ -87,8 +88,29 @@ class CHSL(object):
     def getBestParams(self):
         return self.bestParams
 
+    def get_params(self):
+        return {"baseLinearClassifier": self.baseLinearClassifier,
+                "numberOfClusters": self.numberOfClusters,
+                "baseClusteringAlgorithm": self.baseClusteringAlgorithm,
+                "paramGrid": self.paramGrid,
+                "b": self.b,
+                "n_jobs": self.n_jobs
+                }
+
     def set_params(self, **params):
-        pass
+        if not params:
+            return self
+        valid_params = self.get_params().keys()
+        for key, value in params.items():
+            if key not in valid_params:
+                raise ValueError('Invalid parameter %s for estimator %s. '
+                                 'Check the list of available parameters '
+                                 'with `estimator.get_params().keys()`.' %
+                                 (key, self.__class__.__name__))
+            setattr(self, key, value)
+            if key == "b":
+                self.scoreFunc = make_scorer(self.score_func, b=value)
+        return self
 
     def getMinorAndMajorDatasets(self, X, y):
         """
